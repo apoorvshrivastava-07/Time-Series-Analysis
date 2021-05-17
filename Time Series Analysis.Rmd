@@ -1,0 +1,155 @@
+---
+title: "Forecasting & Time Series Methods"
+author: " By Apoorv Shrivastava"
+output:
+  html_document:
+    code_folding: show
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## {.tabset .tabset-pills}
+
+### Introduction
+
+**The data set Disposable_Income.csv contains (read across) the quarterly disposable income in Japan during the period of 1961 through 1987.  We are trying to build an SARIMA model, perform data transformation, model identification, model selection, diagnostic checking, parameter estimation, and forecast the next year.**
+
+### Step 1: Load the required packages and import the data set
+
+*First, we will load the required packages. Once the packages are loaded, we will import the data in R as time series*
+```{r echo=TRUE, results='hide',warning=FALSE,message=FALSE}
+### Calling Libraries
+library(tidyverse)
+library(tseries)
+library(TSA)
+library(lmtest)
+library(forecast)
+```
+
+```{r}
+### Importing the Data
+data_ts<-ts(scan('C:/Users/appus/Downloads/MSBANA Course/Time Series Forecasting/hw/Disposable_Income.csv'), start=c(1961,1), end=c(1987,4), frequency=4)
+data_ts
+```
+
+### Step 2: Model Estimation
+
+*After importing the dataset, we need to plot the time series data and its ACF PACF. This will help us to have an idea about the time series data and answer the following questions:*
+
+  + *The Time Series is stationary or not?*
+  + *Does the Times Series have constant mean ?*
+  + *Is there a stochastic or deterministic trend in the data*
+```{r}
+### Plot the time series
+data_ts %>% ggtsdisplay(lag.max = 40)
+```
+
+*From the time series and its ACF plot we feel that the time series is not stationary and includes seasonality as well as trend. Additionally, we don't have  as constant variance.*
+
+### Step 3: Stabilizing Non-Constant Variance
+
+*To stabilize the variance, we will do BoxCox Power Transformation and check the plot again to confirm whether the variance is stabilized or not. (The Lambda value indicates the power to which all data should be raised)*
+
+```{r echo=TRUE,warning=FALSE,message=FALSE}
+### Try to stabilize the variance
+bc <- BoxCox.ar(data_ts)
+bc$lambda[which.max(bc$loglike)]
+```
+
+*Visual check finds the variance increases as time goes by, therefore, we use box-cox transformation with lambda=0, i.e., log transformation.*
+```{r echo=TRUE,warning=FALSE,message=FALSE} 
+### Boxcox Transformation
+t<-log(data_ts)
+plot(t)
+```
+
+
+```{r echo=TRUE,warning=FALSE,message=FALSE}
+### Trying to capture seasonality
+data_ts %>% log() %>% ggtsdisplay(lag.max = 40)
+```
+
+*The ACF at lags 4, 8, 12 are still decreasing slowly.We need to check for seasonality.*
+
+### Step 4: Seasonality check
+
+*To capture the seasonality, we will take first order difference of the series and check the plot again to confirm whether we have seasonality or not.*
+
+
+```{r echo=TRUE,warning=FALSE,message=FALSE}
+data_ts %>% log() %>% diff() %>% ggtsdisplay(lag.max = 40)
+```
+
+*We have a seasonality of lag 4. The time series now seems to be stationary. Lets' perform ADF test for stationarity to confirm it.*
+
+### Step 5: Stationarity Test
+
+*Though it is clearly seen in the plots that the time series is stationary, we will still perform the adf test , at a significance level of 0.05, to determine the stationarity.*
+
+```{r echo=TRUE,warning=FALSE,message=FALSE}
+### Determining stationarity
+data_ts %>% log %>% diff() %>% adf.test()
+```
+
+*The p-value = 0.01 which is less than 0.05. Hence, we reject the null hypothesis and conclude that the time series is stationary after taking second order difference.From the above plots, The spike at lag 4 suggests a seasonal MA(1).*
+
+
+### Step 6: Parameter Estimation and Residual Analysis
+
+*As per the plots, we will start with fitting a ARIMA(0,0,1)(0,1,1)[4] to the both seasonally and non-seasonally differenced series.Then, increment the non-seasonality component based on residuals and overall fit.*
+
+```{r  warning=FALSE,message=FALSE}
+(fit <- Arima(data_ts, order=c(0,0,1), seasonal=c(0,1,1),include.constant = FALSE,lambda=0))
+checkresiduals(fit)
+```
+
+*In the residuals, we can see significant spikes at lag 1,2, 4, and so on. So, disregarding this model.*
+```{r  warning=FALSE,message=FALSE}
+(fit1 <- Arima(data_ts, order=c(0,0,2), seasonal=c(0,1,1),include.constant = FALSE,lambda=0))
+checkresiduals(fit1)
+```
+
+*In the residuals, we can still see significant spikes.So, disregarding this model as well.*
+```{r  warning=FALSE,message=FALSE}
+(fit2 <- Arima(data_ts, order=c(0,0,3), seasonal=c(0,1,1),include.constant = FALSE,lambda=0))
+checkresiduals(fit2)
+```
+
+*We see significant spikes in the ACF, let's modify our model a bit.*
+```{r  warning=FALSE,message=FALSE}
+(fit3 <- Arima(data_ts, order=c(1,0,1), seasonal=c(0,1,1),include.constant = FALSE,lambda=0))
+checkresiduals(fit3)
+```
+
+*The AIC and BIC of ARIMA(1,0,1)(0,1,1)[4] model is less and residual looks good.Let's check for overfitting before deciding on the model.*
+
+
+### Step 7: Check for Overfitting
+
+```{r  warning=FALSE,message=FALSE}
+(fit4 <-Arima(data_ts, order=c(1,0,2), seasonal=c(0,1,1),include.constant = FALSE,lambda=0))
+coeftest(fit4)
+```
+
+```{r  warning=FALSE,message=FALSE}
+(fit5 <-Arima(data_ts, order=c(2,0,1), seasonal=c(0,1,1),include.constant = FALSE,lambda=0))
+coeftest(fit5)
+```
+
+*The higher coefficients of of both the models are insignificant and existing coefficients do not changed significantly. So, based on AIC and BIC, we are sticking with ARIMA(1,0,1)(0,1,1)[4] model.*
+
+
+### Step 8: Forecasting
+
+*Now that we know the model is a good fit, we need to forecast for the next year. This can be done as follows:*
+
+```{r echo=TRUE,warning=FALSE,message=FALSE}
+fit3 %>% forecast(h=12) %>% autoplot()
+```
+
+*When we can compare the model with auto.arima, it suggested a slightly different model.*
+```{r echo=TRUE,warning=FALSE,message=FALSE}
+auto.arima(log(data_ts))
+```
